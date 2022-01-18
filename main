@@ -1,0 +1,601 @@
+
+#include <vcl.h>
+#pragma hdrstop
+
+#include <io.h>
+#include <dos.h>
+
+
+#include <sys\stat.h>
+#include <string.h>
+#include <fcntl.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "main.h"
+#include "mepk.h"
+#include "volt34401.h"
+#include "baratron.h"
+
+
+
+//---------------------------------------------------------------------------
+#pragma package(smart_init)
+#pragma resource "*.dfm"
+TForm1 *Form1;
+Mepk* mepk;
+Volt34401* volt34401;
+Baratron* baratron;
+
+//---------------------------------------------------------------------------
+__fastcall TForm1::TForm1(TComponent* Owner)
+        : TForm(Owner)
+{
+       Save_MeasureToFileHeader();
+       Save_MeasureToFileHeader_p();
+}
+//---------------------------------------------------------------------------
+void __fastcall TForm1::Button1Click(TObject *Sender)
+{
+        if(mepk == NULL)
+        {
+                mepk = new Mepk(false);
+        }
+
+}
+//---------------------------------------------------------------------------
+void __fastcall TForm1::FormClose(TObject *Sender, TCloseAction &Action)
+{
+        if(mepk!=NULL)
+        {
+                sio_close ( mepk->port );
+                mepk->Terminate();
+                delete mepk;
+        }
+
+}
+//---------------------------------------------------------------------------
+void __fastcall TForm1::Button2Click(TObject *Sender)
+{
+      if(mepk != NULL)  mepk->send_k('h',10.0*Form1->Edit2->Text.ToDouble());
+}
+//---------------------------------------------------------------------------
+void __fastcall TForm1::Timer1Timer(TObject *Sender)
+{
+      unsigned char e=0;
+      if(mepk != NULL)
+      {
+          mepk->Send_uart_TX_buf();
+          if(!mepk->uart_TX_buf_pointer) e++;
+      }
+      else e ++;
+
+      if(volt34401 != NULL)
+      {
+          volt34401->Send_uart_TX_buf();
+          if(!volt34401->uart_TX_buf_pointer) e++;
+      }
+      else e ++;
+
+
+   //   if(e>1) Timer1->Enabled = false;
+}
+//---------------------------------------------------------------------------
+void  Char_toMemo1(signed int c)
+{
+    AnsiString d;
+
+    if(c == '\n')
+    {
+       Form1->Memo1->Lines->Add(' ');
+    }
+    else
+    {
+      d = Form1->Memo1->Lines->Strings[Form1->Memo1->Lines->Capacity-1];
+      d += (char)c;
+
+      Form1->Memo1->Lines->Strings[Form1->Memo1->Lines->Capacity-1] = d;
+    }
+}
+//---------------------------------------------------------------------------
+void  Char_toMemo2(signed int c)
+{
+    AnsiString d;
+
+    if(c == '\n')
+    {
+       Form1->Memo2->Lines->Add(' ');
+    }
+    else
+    {
+      d = Form1->Memo2->Lines->Strings[Form1->Memo2->Lines->Capacity-1];
+      d += (char)c;
+
+      Form1->Memo2->Lines->Strings[Form1->Memo2->Lines->Capacity-1] = d;
+    }
+}
+//---------------------------------------------------------------------------
+void  Char_toMemo3(signed int c)
+{
+    AnsiString d;
+
+    if(c == '\n')
+    {
+       Form1->Memo3->Lines->Add(' ');
+    }
+    else
+    {
+      d = Form1->Memo3->Lines->Strings[Form1->Memo3->Lines->Capacity-1];
+      d += (char)c;
+
+      Form1->Memo3->Lines->Strings[Form1->Memo3->Lines->Capacity-1] = d;
+    }
+}
+
+void __fastcall TForm1::Button4Click(TObject *Sender)
+{
+        if(volt34401 == NULL)
+        {
+                volt34401 = new Volt34401(false);
+        }
+
+}
+//---------------------------------------------------------------------------
+
+void __fastcall TForm1::Timer2Timer(TObject *Sender)
+{
+      if(volt34401 != NULL)
+      {
+           volt34401->write_uart_tx_buf('I');
+           volt34401->write_uart_tx_buf('N');
+           volt34401->write_uart_tx_buf('I');
+           volt34401->write_uart_tx_buf('T');
+           volt34401->write_uart_tx_buf(';');
+           volt34401->write_uart_tx_buf('F');
+           volt34401->write_uart_tx_buf('E');
+           volt34401->write_uart_tx_buf('T');
+           volt34401->write_uart_tx_buf('C');
+           volt34401->write_uart_tx_buf('H');
+           volt34401->write_uart_tx_buf('?');
+           volt34401->write_uart_tx_buf(0X0A);
+          // Form1->Timer1->Enabled =  true;
+           sio_write( volt34401->port, volt34401->uart_TX_buf, 12);
+           volt34401->uart_TX_buf_pointer = 0;
+           volt34401->uart_TX_buf_pointer_2send = 0;
+       }
+      if(baratron != NULL)
+      {
+           baratron->write_uart_tx_buf('@');
+           baratron->write_uart_tx_buf('0');
+           baratron->write_uart_tx_buf('2');
+           baratron->write_uart_tx_buf('0');
+           baratron->write_uart_tx_buf('?');
+           baratron->write_uart_tx_buf(0x0d);
+           sio_write( baratron->port, baratron->uart_TX_buf, 6);
+           baratron->uart_TX_buf_pointer = 0;
+           baratron->uart_TX_buf_pointer_2send = 0;
+       }
+
+       Save_MeasureToFile();
+     //  if(Form1->CheckBox4->Checked) Save_MeasureToFile_p();
+
+}
+//---------------------------------------------------------------------------
+
+void __fastcall TForm1::Button3Click(TObject *Sender)
+{
+      if(mepk != NULL)  mepk->send_k('H',0);
+
+}
+//---------------------------------------------------------------------------
+
+void __fastcall TForm1::Button5Click(TObject *Sender)
+{
+        if(baratron == NULL)
+        {
+                baratron = new Baratron(false);
+        }
+
+}
+//---------------------------------------------------------------------------
+//----------------------------------------------//
+void   TForm1::Save_MeasureToFileHeader(void)
+{
+    FILE  *out;
+//    AnsiString fileName;
+    AnsiString s;
+    s = time_string_1()+".txt";
+    fileName   = s;//+ "1.txt";
+    //fileName  += "1.txt";
+
+
+     //Data save
+
+    //+IntToStr(MeasureNumber)
+    if((out = fopen(fileName.c_str(), "wt+")) == NULL)
+    {
+        int handle;
+
+        /* change the default file mode from text to binary */
+        _fmode = O_BINARY;
+
+        /* create a binary file for reading and writing */
+        handle = creat(fileName.c_str(), S_IREAD |S_IWRITE);
+
+         /* close the file */
+         close(handle);
+    }
+    _fmode = O_TEXT;
+    //---------------------//
+
+    //fprintf(out,"k="); //        ansistring
+    //s = FloatToStrF( Form1->Edit7->Text.ToDouble(), ffFixed, 7, 8);
+    //fprintf(out, s.c_str() );
+
+
+//    FileHeader(out);
+
+    fprintf(out,"\n");
+
+    //header
+    fprintf(out,"Time      "); //        ansistring
+    fputc('\t',out);
+
+    fprintf(out,"U_34401, V"); //        ansistring
+    fputc('\t',out);
+
+    fprintf(out,"P_barat, Pa"); //        ansistring
+    fputc('\t',out);
+
+    fprintf(out,"U_mepk, V"); //        ansistring
+    fputc('\t',out);
+
+    fprintf(out,"P_mepk, Pa"); //        ansistring
+    fputc('\t',out);
+    //--------------------//
+    fclose(out);
+
+    return ;
+}
+//----------------------------------------------//
+void   TForm1::Save_MeasureToFileHeader_p(void)
+{
+    FILE  *out;
+//    AnsiString fileName;
+    AnsiString s;
+    s = "p_"+time_string_1()+".txt";
+    fileName_p   = s;//+ "1.txt";
+    //fileName  += "1.txt";
+
+
+     //Data save
+
+    //+IntToStr(MeasureNumber)
+    if((out = fopen(fileName_p.c_str(), "wt+")) == NULL)
+    {
+        int handle;
+
+        /* change the default file mode from text to binary */
+        _fmode = O_BINARY;
+
+        /* create a binary file for reading and writing */
+        handle = creat(fileName_p.c_str(), S_IREAD |S_IWRITE);
+
+         /* close the file */
+         close(handle);
+    }
+    _fmode = O_TEXT;
+    //---------------------//
+
+    //fprintf(out,"k="); //        ansistring
+    //s = FloatToStrF( Form1->Edit7->Text.ToDouble(), ffFixed, 7, 8);
+    //fprintf(out, s.c_str() );
+
+
+
+    fprintf(out,"\n");
+
+
+    //header
+    fprintf(out,"Time      "); //        ansistring
+    fputc('\t',out);
+
+    fprintf(out,"U_34401, V"); //        ansistring
+    fputc('\t',out);
+
+    fprintf(out,"P_barat, Pa"); //        ansistring
+    fputc('\t',out);
+
+    fprintf(out,"U_mepk, V"); //        ansistring
+    fputc('\t',out);
+
+    fprintf(out,"P_mepk, Pa"); //        ansistring
+    fputc('\t',out);
+
+    //--------------------//
+    fclose(out);
+
+    return ;
+}
+//----------------------------------------------//
+void   TForm1::Save_MeasureToFile(void)
+{
+    FILE  *out;
+    FILE  *out_p;
+    AnsiString s;
+    //fileName  = "1.txt";
+
+
+     //Data save
+
+    //+IntToStr(MeasureNumber)
+ //   if((out = fopen(fileName.c_str(), "wt+")) == NULL)
+
+
+    if((out = fopen(fileName.c_str(), "a+")) == NULL)
+    {
+        int handle;
+
+        /* change the default file mode from text to binary */
+        _fmode = O_BINARY;
+
+        /* create a binary file for reading and writing */
+        handle = creat(fileName.c_str(), S_IREAD |S_IWRITE);
+
+         /* close the file */
+         close(handle);
+    }
+
+    if((out_p = fopen(fileName_p.c_str(), "a+")) == NULL)
+    {
+        int handle;
+
+        /* change the default file mode from text to binary */
+        _fmode = O_BINARY;
+
+        /* create a binary file for reading and writing */
+        handle = creat(fileName_p.c_str(), S_IREAD |S_IWRITE);
+
+         /* close the file */
+         close(handle);
+    }
+
+    _fmode = O_TEXT;
+    //---------------------//
+
+    fprintf(out,"\n");
+    if(Form1->CheckBox4->Checked) fprintf(out_p, "\n" );
+
+
+    s = time_string();
+    fprintf(out, s.c_str());
+    if(Form1->CheckBox4->Checked) fprintf(out_p, s.c_str() );
+    fputc('\t',out);
+    if(Form1->CheckBox4->Checked)     fputc('\t',out_p);;
+    s = " ";
+
+    if(volt34401 != NULL)
+    {
+       if(volt34401->status_U_34401)
+       {
+          s = FloatToStrF(volt34401->U_34401, ffFixed, 7, 3);
+          fprintf(out, s.c_str() );
+          if(Form1->CheckBox4->Checked) fprintf(out_p, s.c_str() );
+       }
+       volt34401->status_U_34401 = 0;
+    }
+    fputc('\t',out);
+    if(Form1->CheckBox4->Checked)     fputc('\t',out_p);;
+
+    if(baratron != NULL)
+    {
+       if(baratron->status_P_baratron)
+       {
+          s = FloatToStrF(baratron->P_baratron, ffFixed, 7, 4);
+          fprintf(out, s.c_str() );
+          if(Form1->CheckBox4->Checked) fprintf(out_p, s.c_str() );
+       }
+       baratron->status_P_baratron = 0;
+    }
+    fputc('\t',out);
+    if(Form1->CheckBox4->Checked)     fputc('\t',out_p);;
+
+    if(mepk != NULL)
+    {
+       if(mepk->status_U_mepk)
+       {
+           s = FloatToStrF(mepk->U_mepk, ffFixed, 7, 3);
+           fprintf(out, s.c_str() );
+           if(Form1->CheckBox4->Checked) fprintf(out_p, s.c_str() );
+       }
+    }
+    fputc('\t',out);
+    if(Form1->CheckBox4->Checked)     fputc('\t',out_p);;
+
+    if(mepk != NULL)
+    {
+       if(mepk->status_U_mepk)
+       {
+          s = FloatToStrF(mepk->P_mepk, ffFixed, 7, 4);
+          fprintf(out, s.c_str() );
+          if(Form1->CheckBox4->Checked) fprintf(out_p, s.c_str() );
+       }
+    }
+    fputc('\t',out);
+    if(Form1->CheckBox4->Checked)     fputc('\t',out_p);;
+
+    //--------------------//
+    fclose(out);
+    fclose(out_p);
+
+    return ;
+}
+//----------------------------------------------//
+void   TForm1::Save_MeasureToFile_p(void)
+{
+    FILE  *out;
+    AnsiString s;
+    //fileName  = "1.txt";
+
+
+     //Data save
+
+    //+IntToStr(MeasureNumber)
+ //   if((out = fopen(fileName.c_str(), "wt+")) == NULL)
+    if((out = fopen(fileName_p.c_str(), "a+")) == NULL)
+    {
+        int handle;
+
+        /* change the default file mode from text to binary */
+        _fmode = O_BINARY;
+
+        /* create a binary file for reading and writing */
+        handle = creat(fileName_p.c_str(), S_IREAD |S_IWRITE);
+
+         /* close the file */
+         close(handle);
+    }
+    _fmode = O_TEXT;
+    //---------------------//
+
+    fprintf(out,"\n");
+
+    //fprintf(out, "1");
+    //fputc('\t',out);
+
+    //    fprintf(out, aMeasureNumber.c_str());
+    s = time_string();
+    fprintf(out, s.c_str());
+    fputc('\t',out);
+    s = " ";
+
+    if(volt34401 != NULL)
+    {
+       if(volt34401->status_U_34401)
+       {
+          s = FloatToStrF(volt34401->U_34401, ffFixed, 7, 3);
+          fprintf(out, s.c_str() );
+       }
+       volt34401->status_U_34401 = 0;
+    }
+    fputc('\t',out);
+
+    if(baratron != NULL)
+    {
+       if(baratron->status_P_baratron)
+       {
+          s = FloatToStrF(baratron->P_baratron, ffFixed, 7, 4);
+          fprintf(out, s.c_str() );
+       }
+       baratron->status_P_baratron = 0;
+    }
+    fputc('\t',out);
+
+    if(mepk != NULL)
+    {
+       if(mepk->status_U_mepk)
+       {
+           s = FloatToStrF(mepk->U_mepk, ffFixed, 7, 3);
+           fprintf(out, s.c_str() );
+       }
+    }
+    fputc('\t',out);
+
+    if(mepk != NULL)
+    {
+       if(mepk->status_U_mepk)
+       {
+          s = FloatToStrF(mepk->P_mepk, ffFixed, 7, 4);
+          fprintf(out, s.c_str() );
+       }
+    }
+    fputc('\t',out);
+    //--------------------//
+    fclose(out);
+
+    return ;
+}
+//----------------------------
+AnsiString  time_string(void)
+{
+    AnsiString d;
+    struct  time t;
+
+    gettime(&t);
+    d = "";
+    if(t.ti_hour < 10)
+    {
+        d += "0";
+    }
+    d += IntToStr(t.ti_hour)+":";
+    if(t.ti_min < 10)
+    {
+        d += "0";
+    }
+    d += IntToStr(t.ti_min)+":";
+    if(t.ti_sec < 10)
+    {
+        d += "0";
+    }
+    d += IntToStr(t.ti_sec);
+
+    return d;
+}
+//----------------------------
+AnsiString  time_string_1(void)
+{
+    AnsiString d;
+    struct  time t;
+
+    gettime(&t);
+    d = "";
+    if(t.ti_hour < 10)
+    {
+        d += "0";
+    }
+    d += IntToStr(t.ti_hour)+"_";
+    if(t.ti_min < 10)
+    {
+        d += "0";
+    }
+    d += IntToStr(t.ti_min)+"_";
+    if(t.ti_sec < 10)
+    {
+        d += "0";
+    }
+    d += IntToStr(t.ti_sec);
+
+    return d;
+}
+
+void __fastcall TForm1::Button6Click(TObject *Sender)
+{
+      if(mepk != NULL)  mepk->send_k('8',0);
+
+}
+//---------------------------------------------------------------------------
+
+void __fastcall TForm1::Button7Click(TObject *Sender)
+{
+      if(mepk != NULL)  mepk->send_k('5',0);
+
+}
+//---------------------------------------------------------------------------
+
+void __fastcall TForm1::Button8Click(TObject *Sender)
+{
+      if(mepk != NULL)  mepk->send_k('6',0);
+
+}
+//---------------------------------------------------------------------------
+
+void __fastcall TForm1::Button9Click(TObject *Sender)
+{
+        baratron->P_baratron_sum = 0;
+        baratron->P_baratron_sum_cnt = 0;
+
+        Form1->CheckBox4->Checked = true;
+}
+//---------------------------------------------------------------------------
+
